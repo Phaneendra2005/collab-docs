@@ -1,0 +1,19 @@
+FROM node:20-alpine
+
+WORKDIR /app
+
+# Copy socket server source
+COPY socket-server/package.json socket-server/package-lock.json* ./
+
+RUN npm ci
+
+COPY socket-server/src ./src
+COPY socket-server/tsconfig.json ./tsconfig.json
+
+RUN npm run build
+
+ENV NODE_ENV=production
+
+EXPOSE 3001
+
+CMD ["node", "dist/server.js"]

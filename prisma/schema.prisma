@@ -1,0 +1,228 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model User {
+  id             String         @id @default(cuid())
+  name           String?
+  email          String?        @unique
+  emailVerified  DateTime?
+  image          String?
+  accounts       Account[]
+  sessions       Session[]
+  ownedDocs      Document[]     @relation("DocumentOwner")
+  collaborations Collaborator[]
+  operations     Operation[]
+  aiHistory      AIHistory[]
+  auditLogs      AuditLog[]
+  presences      Presence[]
+  comments       Comment[]
+  notifications  Notification[]
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+  user              User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
+
+model Document {
+  id                String   @id @default(cuid())
+  title             String   @default("Untitled")
+  slug              String   @unique @default(cuid())
+  icon              String?
+  coverImage        String?
+  isFavorite        Boolean  @default(false)
+  isArchived        Boolean  @default(false)
+  ownerId           String
+  owner             User     @relation("DocumentOwner", fields: [ownerId], references: [id], onDelete: Restrict)
+  contentSnapshot   Json?
+  optimisticVersion Int      @default(0)
+  isDeleted         Boolean  @default(false)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  collaborators Collaborator[]
+  operations    Operation[]
+  versions      DocumentVersion[]
+  invitations   Invitation[]
+  aiHistory     AIHistory[]
+  auditLogs     AuditLog[]
+  presence      Presence[]
+  comments      Comment[]
+
+  @@index([ownerId])
+  @@index([isDeleted])
+}
+
+enum Role {
+  OWNER
+  EDITOR
+  VIEWER
+}
+
+model Collaborator {
+  id         String   @id @default(cuid())
+  documentId String
+  userId     String
+  role       Role
+  document   Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  addedAt    DateTime @default(now())
+
+  @@unique([documentId, userId])
+}
+
+model Operation {
+  id         String   @id // Deterministic Hash of operation
+  documentId String
+  actorId    String
+  lamport    Int
+  parentId   String? // Causal dependency
+  type       String // INSERT, DELETE, FORMAT, UPDATE_META
+  payload    Json
+  createdAt  DateTime @default(now())
+
+  document Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  actor    User     @relation(fields: [actorId], references: [id], onDelete: Restrict)
+
+  @@unique([documentId, id])
+  @@index([documentId, lamport]) // Critical for deterministic replay
+}
+
+model DocumentVersion {
+  id         String   @id @default(cuid())
+  documentId String
+  versionNum Int
+  snapshot   Json // Compressed state
+  metadata   Json? // Description, labels
+  createdBy  String
+  createdAt  DateTime @default(now())
+
+  document Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+
+  @@unique([documentId, versionNum])
+}
+
+model Invitation {
+  id         String   @id @default(cuid())
+  documentId String
+  email      String
+  role       Role
+  token      String   @unique
+  expiresAt  DateTime
+  document   Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+
+  @@index([email])
+}
+
+model AIHistory {
+  id         String   @id @default(cuid())
+  documentId String
+  userId     String
+  prompt     String   @db.Text
+  response   String   @db.Text
+  tokensUsed Int      @default(0)
+  actionType String // SUMMARIZE, FIX_GRAMMAR, etc
+  createdAt  DateTime @default(now())
+
+  document Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  documentId String?
+  userId     String?
+  action     String // PERMISSION_CHANGED, DOC_DELETED
+  details    Json
+  createdAt  DateTime @default(now())
+
+  document Document? @relation(fields: [documentId], references: [id], onDelete: SetNull)
+  user     User?     @relation(fields: [userId], references: [id], onDelete: SetNull)
+}
+
+model Presence {
+  id         String   @id @default(cuid())
+  documentId String
+  userId     String
+  lastSeen   DateTime @default(now())
+  cursorPos  Json?
+
+  document Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([documentId, userId])
+}
+
+model Comment {
+  id         String   @id @default(cuid())
+  documentId String
+  authorId   String
+  content    String   @db.Text
+  quote      String?  @db.Text // The highlighted text that was selected
+  resolved   Boolean  @default(false)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  
+  // Threading
+  parentId   String?
+  parent     Comment?  @relation("ThreadReplies", fields: [parentId], references: [id], onDelete: Cascade)
+  replies    Comment[] @relation("ThreadReplies")
+
+  document   Document  @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  author     User      @relation(fields: [authorId], references: [id], onDelete: Cascade)
+
+  @@index([documentId])
+  @@index([authorId])
+}
+
+model Notification {
+  id        String   @id @default(cuid())
+  userId    String
+  title     String
+  body      String   @db.Text
+  type      String   // COMMENT, MENTION, SHARE, ROLE_CHANGE, ACCESS_REVOKED
+  link      String?  // The URL to navigate to
+  isRead    Boolean  @default(false)
+  createdAt DateTime @default(now())
+  
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, isRead])
+}
+
