@@ -115,12 +115,20 @@ export default function TipTapEditor({
 
       // PIPELINE A: Immediate Broadcast of Delta (Steps)
       engine.applyLocalSteps(transaction.steps, transaction.docs).then((op) => {
+        console.log('[LOCAL OP]', op)
+
         if (op) {
+          console.log('[SENDING]', op.operationId)
+
           socket?.emit('operation:send', op, (ack: any) => {
+            console.log('[ACK]', ack)
+
             if (!ack || !ack.success) {
               console.error('Failed to sync operation', ack?.error)
             }
           })
+        } else {
+          console.log('[NO OP GENERATED]')
         }
       })
 

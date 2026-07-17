@@ -22,6 +22,8 @@ export function registerOperationHandlers(
   socket.on('operation:send', async (payload, callback) => {
     MetricsService.trackMessage()
 
+    console.log('[SERVER RECEIVED]', socket.data.userId, payload.operationId, payload.documentId)
+
     const parsed = OperationSendSchema.safeParse(payload)
     if (!parsed.success) {
       if (callback)
@@ -42,7 +44,10 @@ export function registerOperationHandlers(
     const op = parsed.data
 
     // BROADCAST IMMEDIATELY (Pipeline A)
+    // BROADCAST IMMEDIATELY
     socket.to(op.documentId).emit('operation:receive', op)
+
+    console.log('[SERVER BROADCAST]', op.operationId, op.documentId)
 
     // BATCH PERSISTENCE ASYNCHRONOUSLY (Pipeline B)
     let queue = broadcastQueues.get(op.documentId) || []

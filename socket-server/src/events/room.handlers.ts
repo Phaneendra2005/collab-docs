@@ -28,6 +28,8 @@ export function registerRoomHandlers(
 
       socket.join(documentId)
 
+      console.log('[ROOM JOIN]', socket.data.userId, documentId, socket.data.role)
+
       let activeUsers = documentRoomCache.get(documentId) || []
       // Prevent duplicates if reconnecting
       if (!activeUsers.some((u: any) => u.sessionId === socket.data.sessionId)) {
