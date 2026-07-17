@@ -212,6 +212,7 @@ export default function TipTapEditor({
     syncEngineRef.current = engine
 
     const applyStepsToEditor = (steps: Step[]) => {
+      console.log('[EDITOR] applyStepsToEditor', steps)
       const currentEditor = localEditorRef.current
       if (!currentEditor) return
 

@@ -149,7 +149,12 @@ export class SyncEngine extends EventEmitter {
     // Process through OperationEngine for parent dependencies and duplicate suppression
     const readyOps = await this.engine.receiveOperation(op)
 
-    if (readyOps.length === 0) return
+    if (readyOps.length === 0) {
+      console.log('[SYNC] readyOps = 0')
+      return
+    }
+
+    console.log('[SYNC] readyOps =', readyOps)
 
     for (const readyOp of readyOps) {
       if (readyOp.lamportClock <= this.lastProcessedLamport) {
@@ -163,6 +168,7 @@ export class SyncEngine extends EventEmitter {
         readyOp.operationType === 'UpdateMetadata' &&
         (readyOp.payload as any).key === 'tiptap_steps'
       ) {
+        console.log('[SYNC] Processing tiptap_steps')
         const remoteStepsJson = JSON.parse((readyOp.payload as any).value as string)
         const remoteSteps = remoteStepsJson.map((json: any) => Step.fromJSON(this.schema!, json))
 
@@ -236,6 +242,8 @@ export class SyncEngine extends EventEmitter {
         // Emit single finalized operation array to Editor
         const finalizedSteps = [...invertedSteps, ...validRemoteSteps, ...mappedLocalSteps]
         if (finalizedSteps.length > 0) {
+          console.log('[SYNC] Emitting apply-steps', finalizedSteps.length)
+
           this.emit('apply-steps', finalizedSteps)
         }
       } else if (
@@ -243,6 +251,8 @@ export class SyncEngine extends EventEmitter {
         (readyOp.payload as any).key === 'content'
       ) {
         const content = JSON.parse((readyOp.payload as any).value as string)
+        console.log('[SYNC] Emitting apply-content')
+
         this.emit('apply-content', content)
       }
     }
