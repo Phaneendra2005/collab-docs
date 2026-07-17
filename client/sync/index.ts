@@ -1,5 +1,5 @@
 import { EventEmitter } from 'events'
-import { Step, Mapping } from '@tiptap/pm/transform'
+import { Step, Mapping, Transform } from '@tiptap/pm/transform'
 import { Schema, Node } from '@tiptap/pm/model'
 import { OperationEngine } from './operation-engine'
 import { LamportClock } from './lamport-clock'
@@ -176,79 +176,94 @@ export class SyncEngine extends EventEmitter {
 
         console.log('[REMOTE STEPS JSON]', JSON.stringify(remoteStepsJson, null, 2))
 
-        // RECONCILIATION: OT Rebasing
-        let tempDoc = currentEditorDoc
-        const invertedSteps: Step[] = []
+        // RECONCILIATION: OT Rebasing - Official ProseMirror Collab Algorithm
+        // 1. Establish the clean original state (before unconfirmed local steps)
+        const originalDoc =
+          this.unconfirmedLocalSteps.length > 0
+            ? this.unconfirmedLocalSteps[0].docBefore
+            : currentEditorDoc
 
-        // 1. Invert local unconfirmed steps (in reverse order)
-        for (let i = this.unconfirmedLocalSteps.length - 1; i >= 0; i--) {
-          const u = this.unconfirmedLocalSteps[i]
-          const inverted = u.step.invert(u.docBefore)
-          invertedSteps.push(inverted)
-          if (this.isStepValidForDoc(inverted, tempDoc)) {
-            const res = inverted.apply(tempDoc)
-            if (res.doc) tempDoc = res.doc
-          } else {
-            SyncLogger.warn('Inverted local step out of bounds, skipping inversion.')
-          }
+        // --- Phase A: Compute Local Steps Mapped Over Remote Steps (L') ---
+        const trLocal = new Transform(originalDoc)
+        const unconfirmed = this.unconfirmedLocalSteps
+
+        // Invert local steps to rewind to OriginalDoc
+        for (let i = unconfirmed.length - 1; i >= 0; i--) {
+          trLocal.step(unconfirmed[i].step.invert(unconfirmed[i].docBefore))
         }
 
-        // 2. Apply remote steps to the clean state
+        // Apply remote steps to OriginalDoc
         const validRemoteSteps: Step[] = []
+        const remoteDocs: Node[] = []
         for (const rStep of remoteSteps) {
-          if (!this.isStepValidForDoc(rStep, tempDoc)) {
-            SyncLogger.warn(
-              `Safely ignored incompatible remote step. Max size: ${tempDoc.content.size}`,
-              rStep.toJSON(),
-            )
-            continue
-          }
-          const res = rStep.apply(tempDoc)
+          const docBefore = trLocal.doc
+          const res = trLocal.maybeStep(rStep)
           if (res.doc) {
-            tempDoc = res.doc
+            remoteDocs.push(docBefore)
             validRemoteSteps.push(rStep)
           } else {
             SyncLogger.warn(`Remote step logic failed: ${res.failed}`)
           }
         }
 
-        // 3. Re-apply local unconfirmed steps (mapped over remote)
+        // Rebase local steps over remote steps (using prosemirror-collab setMirror logic)
         const newUnconfirmed: UnconfirmedStep[] = []
-        const mapOverRemote = new Mapping()
-        validRemoteSteps.forEach((rs) => mapOverRemote.appendMap(rs.getMap()))
+        for (let i = 0; i < unconfirmed.length; i++) {
+          const u = unconfirmed[i]
+          const inverseIndex = unconfirmed.length - 1 - i
+          // Map through the transform excluding the local steps before it
+          const mapped = u.step.map(trLocal.mapping.slice(inverseIndex + 1))
 
-        const mappedLocalSteps: Step[] = []
-        for (const u of this.unconfirmedLocalSteps) {
-          const mappedStep = u.step.map(mapOverRemote)
-          if (mappedStep) {
-            if (!this.isStepValidForDoc(mappedStep, tempDoc)) {
-              SyncLogger.warn('Safely ignored mapped local step out of bounds.')
-              continue
-            }
-            const docBefore = tempDoc
-            const res = mappedStep.apply(tempDoc)
-            if (res.doc) {
-              tempDoc = res.doc
+          if (mapped) {
+            const docBefore = trLocal.doc
+            if (trLocal.maybeStep(mapped).doc) {
+              ;(trLocal.mapping as any).setMirror(inverseIndex, trLocal.steps.length - 1)
               newUnconfirmed.push({
                 operationId: u.operationId,
-                step: mappedStep,
-                docBefore: docBefore,
+                step: mapped,
+                docBefore,
               })
-              mappedLocalSteps.push(mappedStep)
+            } else {
+              SyncLogger.warn('Safely ignored mapped local step out of bounds.')
             }
           }
         }
 
-        // Update tracking
+        // --- Phase B: Compute Remote Steps Mapped Over Local Steps (R') ---
+        // Symmetrically map remote steps over local steps to emit them to the editor.
+        const trRemote = new Transform(originalDoc)
+
+        // Invert valid remote steps to rewind to OriginalDoc
+        for (let i = validRemoteSteps.length - 1; i >= 0; i--) {
+          trRemote.step(validRemoteSteps[i].invert(remoteDocs[i]))
+        }
+
+        // Apply all original unconfirmed local steps
+        for (const u of unconfirmed) {
+          trRemote.maybeStep(u.step)
+        }
+
+        // Rebase remote steps over local steps
+        const mappedRemoteSteps: Step[] = []
+        for (let i = 0; i < validRemoteSteps.length; i++) {
+          const r = validRemoteSteps[i]
+          const inverseIndex = validRemoteSteps.length - 1 - i
+          const mapped = r.map(trRemote.mapping.slice(inverseIndex + 1))
+
+          if (mapped && trRemote.maybeStep(mapped).doc) {
+            ;(trRemote.mapping as any).setMirror(inverseIndex, trRemote.steps.length - 1)
+            mappedRemoteSteps.push(mapped)
+          }
+        }
+
+        // Update tracking states
         this.unconfirmedLocalSteps = newUnconfirmed
-        currentEditorDoc = tempDoc
+        currentEditorDoc = trLocal.doc
 
-        // Emit single finalized operation array to Editor
-        const finalizedSteps = [...invertedSteps, ...validRemoteSteps, ...mappedLocalSteps]
-        if (finalizedSteps.length > 0) {
-          console.log('[SYNC] Emitting apply-steps', finalizedSteps.length)
-
-          this.emit('apply-steps', finalizedSteps)
+        // Emit ONLY the final transformed remote transaction
+        if (mappedRemoteSteps.length > 0) {
+          console.log('[SYNC] Emitting apply-steps', mappedRemoteSteps.length)
+          this.emit('apply-steps', mappedRemoteSteps)
         }
       } else if (
         readyOp.operationType === 'UpdateMetadata' &&
