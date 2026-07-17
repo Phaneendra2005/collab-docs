@@ -27,6 +27,7 @@ export class SyncEngine extends EventEmitter {
   private unconfirmedLocalSteps: UnconfirmedStep[] = []
   private lastProcessedLamport: number = 0
   private lastProcessedOperationId: string | null = null
+  public lastAckedOperationId: string | null = null
   private sessionGeneratedOperationIds = new Set<string>()
 
   constructor(
@@ -63,6 +64,23 @@ export class SyncEngine extends EventEmitter {
     if (typeof json.pos === 'number' && (json.pos < 0 || json.pos > maxSize)) return false
 
     return true
+  }
+
+  acknowledgeLocalOperation(operationId: string) {
+    const beforeCount = this.unconfirmedLocalSteps.length
+
+    this.unconfirmedLocalSteps = this.unconfirmedLocalSteps.filter(
+      (u) => u.operationId !== operationId,
+    )
+
+    this.lastAckedOperationId = operationId
+
+    console.log('[DEBUG] acknowledgeLocalOperation:', {
+      operationIdAcknowledged: operationId,
+      unconfirmedLocalStepsBeforeRemoval: beforeCount,
+      unconfirmedLocalStepsAfterRemoval: this.unconfirmedLocalSteps.length,
+      lastAckedOperationId: this.lastAckedOperationId,
+    })
   }
 
   async applyLocalSteps(steps: Step[], docsBefore: Node[]) {

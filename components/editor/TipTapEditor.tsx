@@ -129,6 +129,8 @@ export default function TipTapEditor({
 
             if (!ack || !ack.success) {
               console.error('Failed to sync operation', ack?.error)
+            } else if (ack.success) {
+              engine.acknowledgeLocalOperation(op.operationId)
             }
           })
         } else {
@@ -319,7 +321,11 @@ export default function TipTapEditor({
 
         socket.emit(
           'sync:reconnect',
-          { documentId, lastLamportClock: engine.clock.current() || 0, lastAckedOperationId: null },
+          {
+            documentId,
+            lastLamportClock: engine.clock.current() || 0,
+            lastAckedOperationId: engine.lastAckedOperationId,
+          },
           async (ack: any, missingOps: any[]) => {
             if (ack.success && missingOps && Array.isArray(missingOps)) {
               for (const op of missingOps) {
