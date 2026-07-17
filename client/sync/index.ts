@@ -172,6 +172,10 @@ export class SyncEngine extends EventEmitter {
         const remoteStepsJson = JSON.parse((readyOp.payload as any).value as string)
         const remoteSteps = remoteStepsJson.map((json: any) => Step.fromJSON(this.schema!, json))
 
+        console.log('[REMOTE DOC BEFORE]', JSON.stringify(currentEditorDoc.toJSON(), null, 2))
+
+        console.log('[REMOTE STEPS JSON]', JSON.stringify(remoteStepsJson, null, 2))
+
         // RECONCILIATION: OT Rebasing
         let tempDoc = currentEditorDoc
         const invertedSteps: Step[] = []

@@ -223,12 +223,12 @@ export default function TipTapEditor({
 
       steps.forEach((step, index) => {
         try {
-          console.log('[STEP BEFORE]', index, tr.doc.toJSON())
+          console.log('[STEP BEFORE]', JSON.stringify(tr.doc.toJSON(), null, 2))
 
           tr.step(step)
 
           console.log('[STEP APPLIED]', index)
-          console.log('[STEP AFTER]', index, tr.doc.toJSON())
+          console.log('[STEP AFTER]', JSON.stringify(tr.doc.toJSON(), null, 2))
         } catch (e) {
           console.error('[STEP FAILED]', index, e)
         }
@@ -238,7 +238,7 @@ export default function TipTapEditor({
 
       currentEditor.view.dispatch(tr)
 
-      console.log('[EDITOR AFTER DISPATCH]', currentEditor.getJSON())
+      console.log('[EDITOR AFTER DISPATCH]', JSON.stringify(currentEditor.getJSON(), null, 2))
 
       isApplyingRemote.current = false
     }
