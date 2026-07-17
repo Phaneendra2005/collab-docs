@@ -268,7 +268,9 @@ export default function TipTapEditor({
     }
 
     engine.on('apply-steps', applyStepsToEditor)
-    engine.on('apply-content', applyContentToEditor)
+
+    // TEMPORARILY DISABLE
+    // engine.on('apply-content', applyContentToEditor)
 
     engine.initialize()
 
@@ -351,19 +353,8 @@ export default function TipTapEditor({
     const onReconnectAttempt = () => updateConnectionStatus('Reconnecting')
 
     const onOperationReceive = async (op: any) => {
-      console.log('[DEBUG] Socket receive:', {
-        operationId: op.operationId,
-        actorId: op.actorId,
-        timestamp: Date.now(),
-      })
       console.log('[RECEIVED OP]', op)
-
-      if (op.operationType === 'UpdateMetadata') {
-        console.log('[APPLYING UPDATE METADATA]')
-        await engine.receiveRemoteOperation(op, localEditorRef.current!.state.doc)
-      } else {
-        console.log('[IGNORED OPERATION]', op.operationType)
-      }
+      await engine.receiveRemoteOperation(op, localEditorRef.current!.state.doc)
     }
 
     const onRestore = async (e: Event) => {
