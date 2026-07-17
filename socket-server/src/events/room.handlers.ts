@@ -28,6 +28,23 @@ export function registerRoomHandlers(
 
       socket.join(documentId)
 
+      await socket.join(documentId)
+
+      console.log('=== ROOM JOIN ===')
+      console.log('Socket:', socket.id)
+      console.log('User:', socket.data.userId)
+      console.log('Document:', documentId)
+      console.log('Rooms:', [...socket.rooms])
+
+      const sockets = await io.in(documentId).fetchSockets()
+      console.log(
+        'Members:',
+        sockets.map((s) => ({
+          id: s.id,
+          user: s.data.userId,
+        })),
+      )
+
       console.log('[ROOM JOIN]', socket.data.userId, documentId, socket.data.role)
 
       let activeUsers = documentRoomCache.get(documentId) || []
