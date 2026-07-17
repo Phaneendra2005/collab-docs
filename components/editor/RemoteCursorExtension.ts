@@ -36,10 +36,16 @@ export const RemoteCursors = Extension.create({
                 const safeStart = Math.max(0, Math.min(cursor.start, docSize))
                 const safeEnd = Math.max(0, Math.min(cursor.end, docSize))
 
-                // Draw selection highlight if there's a range
                 if (safeStart !== safeEnd) {
                   const from = Math.min(safeStart, safeEnd)
                   const to = Math.max(safeStart, safeEnd)
+
+                  console.log('[DEBUG] Cursor sync (Mapped selection):', {
+                    actorId: cursor.actorId,
+                    original: { start: cursor.start, end: cursor.end },
+                    mapped: { start: from, end: to },
+                    docSize: docSize,
+                  })
 
                   decorations.push(
                     Decoration.inline(from, to, {

@@ -63,6 +63,9 @@ export class OperationEngine {
       this.appliedOperations.has(operation.operationId) ||
       this.buffer.has(operation.operationId)
     ) {
+      console.log('[DEBUG] OperationEngine duplicate detected:', {
+        operationId: operation.operationId,
+      })
       SyncLogger.warn(`Duplicate operation safely ignored: ${operation.operationId}`)
       return []
     }
@@ -71,10 +74,10 @@ export class OperationEngine {
     this.buffer.set(operation.operationId, operation)
 
     // 5. Trigger Deterministic Drain
-    return this.drainReadyOperations()
+    return this.drainReadyOperations(operation.operationId)
   }
 
-  private drainReadyOperations(): DocumentOperation[] {
+  private drainReadyOperations(incomingOpId?: string): DocumentOperation[] {
     const newlyApplied: DocumentOperation[] = []
     const t0 = performance.now()
 
@@ -109,6 +112,19 @@ export class OperationEngine {
           }
         }
       }
+    }
+
+    if (incomingOpId) {
+      const incomingOp = this.appliedOperations.has(incomingOpId)
+        ? newlyApplied.find((o) => o.operationId === incomingOpId) || null
+        : this.buffer.get(incomingOpId) || null
+
+      console.log('[DEBUG] OperationEngine.receiveOperation:', {
+        incomingOperationId: incomingOpId,
+        parentOperationIds: incomingOp?.parentOperationIds,
+        pendingQueueSize: this.buffer.size,
+        readyOpsCount: newlyApplied.length,
+      })
     }
 
     if (newlyApplied.length > 0) {

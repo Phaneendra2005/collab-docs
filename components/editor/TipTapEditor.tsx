@@ -118,6 +118,10 @@ export default function TipTapEditor({
         console.log('[LOCAL OP]', op)
 
         if (op) {
+          console.log('[DEBUG] Socket send:', {
+            operationId: op.operationId,
+            timestamp: Date.now(),
+          })
           console.log('[SENDING]', op.operationId)
 
           socket?.emit('operation:send', op, (ack: any) => {
@@ -341,6 +345,11 @@ export default function TipTapEditor({
     const onReconnectAttempt = () => updateConnectionStatus('Reconnecting')
 
     const onOperationReceive = async (op: any) => {
+      console.log('[DEBUG] Socket receive:', {
+        operationId: op.operationId,
+        actorId: op.actorId,
+        timestamp: Date.now(),
+      })
       console.log('[RECEIVED OP]', op)
 
       if (op.operationType === 'UpdateMetadata') {

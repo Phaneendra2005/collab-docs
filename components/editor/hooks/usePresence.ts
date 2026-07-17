@@ -30,6 +30,11 @@ export function usePresence(socket: Socket | null, documentId: string, editor: E
         const next = new Map(prev)
         next.set(payload.sessionId, payload)
 
+        console.log('[DEBUG] Cursor sync (Remote selection received):', {
+          actorId: payload.actorId,
+          selection: payload.selection,
+        })
+
         // Update TipTap decorations for remote cursors and selections using the NEW state
         const cursors = Array.from(next.values())
           .filter((c) => c.selection)
@@ -124,6 +129,10 @@ export function usePresence(socket: Socket | null, documentId: string, editor: E
       }
 
       lastSelection.current = { start: from, end: to }
+
+      console.log('[DEBUG] Cursor sync (Local selection updated):', {
+        localSelection: lastSelection.current,
+      })
 
       socket.emit('presence:update', {
         documentId,

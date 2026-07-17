@@ -77,6 +77,14 @@ export class SyncEngine extends EventEmitter {
       [],
     )
 
+    console.log('[DEBUG] applyLocalSteps:', {
+      operationId: op.operationId,
+      actorId: op.actorId,
+      parentOperationIds: op.parentOperationIds,
+      unconfirmedLocalStepsLength: this.unconfirmedLocalSteps.length + steps.length,
+      stepsJson: stepsJson,
+    })
+
     for (let i = 0; i < steps.length; i++) {
       this.unconfirmedLocalSteps.push({
         operationId: op.operationId,
@@ -113,6 +121,14 @@ export class SyncEngine extends EventEmitter {
       createdAt: Date.now(),
       schemaVersion: 1,
     }
+
+    console.log('[DEBUG] emitOperation:', {
+      operationId: opId,
+      actorId: this.actorId,
+      lamportClock: lamport,
+      parentOperationIds: parentIds,
+      timestamp: baseObj.createdAt,
+    })
 
     this.sessionGeneratedOperationIds.add(opId)
 
@@ -172,12 +188,20 @@ export class SyncEngine extends EventEmitter {
         const remoteStepsJson = JSON.parse((readyOp.payload as any).value as string)
         const remoteSteps = remoteStepsJson.map((json: any) => Step.fromJSON(this.schema!, json))
 
+        console.log('[DEBUG] SyncEngine.receiveRemoteOperation:', {
+          currentEditorDoc: currentEditorDoc.toJSON(),
+          currentEditorDocSize: currentEditorDoc.content.size,
+          remoteStepsJson: remoteStepsJson,
+          unconfirmedLocalStepsBefore: this.unconfirmedLocalSteps.length,
+        })
+
         console.log('[REMOTE DOC BEFORE]', JSON.stringify(currentEditorDoc.toJSON(), null, 2))
 
         console.log('[REMOTE STEPS JSON]', JSON.stringify(remoteStepsJson, null, 2))
 
         // RECONCILIATION: OT Rebasing
         let tempDoc = currentEditorDoc
+        console.log('[DEBUG] tempDoc before:', tempDoc.content.size)
         const invertedSteps: Step[] = []
 
         // 1. Invert local unconfirmed steps (in reverse order)
@@ -234,13 +258,17 @@ export class SyncEngine extends EventEmitter {
           mappedLocalSteps.forEach((mapped) => stepMapping.appendMap(mapped.getMap()))
 
           const mappedStep = u.step.map(stepMapping)
+          console.log('[DEBUG] mapped step result:', mappedStep ? mappedStep.toJSON() : null)
           if (mappedStep) {
-            if (!this.isStepValidForDoc(mappedStep, tempDoc)) {
+            const isValid = this.isStepValidForDoc(mappedStep, tempDoc)
+            console.log('[DEBUG] validation result:', isValid)
+            if (!isValid) {
               SyncLogger.warn('Safely ignored mapped local step out of bounds.')
               continue
             }
             const docBefore = tempDoc
             const res = mappedStep.apply(tempDoc)
+            console.log('[DEBUG] apply result:', !!res.doc)
             if (res.doc) {
               tempDoc = res.doc
               newUnconfirmed.push({
@@ -253,12 +281,22 @@ export class SyncEngine extends EventEmitter {
           }
         }
 
+        console.log('[DEBUG] tempDoc after:', tempDoc.content.size)
+
         // Update tracking
         this.unconfirmedLocalSteps = newUnconfirmed
+        console.log('[DEBUG] unconfirmedLocalSteps after:', this.unconfirmedLocalSteps.length)
         currentEditorDoc = tempDoc
 
         // Emit single finalized operation array to Editor
         const finalizedSteps = [...invertedSteps, ...validRemoteSteps, ...mappedLocalSteps]
+
+        console.log('[DEBUG] Before emit apply-steps:', {
+          numberOfEmittedSteps: finalizedSteps.length,
+          documentSizeBefore: currentEditorDoc.content.size, // Wait, currentEditorDoc is already updated here
+          documentSizeAfter: tempDoc.content.size,
+        })
+
         if (finalizedSteps.length > 0) {
           console.log('[SYNC] Emitting apply-steps', finalizedSteps.length)
 
