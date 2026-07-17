@@ -219,28 +219,30 @@ export default function TipTapEditor({
 
       isApplyingRemote.current = true
 
-      const tr = currentEditor.state.tr
+      try {
+        const tr = currentEditor.state.tr
 
-      steps.forEach((step, index) => {
-        try {
-          console.log('[STEP BEFORE]', JSON.stringify(tr.doc.toJSON(), null, 2))
+        steps.forEach((step, index) => {
+          try {
+            console.log('[STEP BEFORE]', JSON.stringify(tr.doc.toJSON(), null, 2))
 
-          tr.step(step)
+            tr.step(step)
 
-          console.log('[STEP APPLIED]', index)
-          console.log('[STEP AFTER]', JSON.stringify(tr.doc.toJSON(), null, 2))
-        } catch (e) {
-          console.error('[STEP FAILED]', index, e)
-        }
-      })
+            console.log('[STEP APPLIED]', index)
+            console.log('[STEP AFTER]', JSON.stringify(tr.doc.toJSON(), null, 2))
+          } catch (e) {
+            console.error('[STEP FAILED]', index, e)
+          }
+        })
 
-      console.log('[DISPATCH]', tr.doc.toJSON())
+        console.log('[DISPATCH]', tr.doc.toJSON())
 
-      currentEditor.view.dispatch(tr)
+        currentEditor.view.dispatch(tr)
 
-      console.log('[EDITOR AFTER DISPATCH]', JSON.stringify(currentEditor.getJSON(), null, 2))
-
-      isApplyingRemote.current = false
+        console.log('[EDITOR AFTER DISPATCH]', JSON.stringify(currentEditor.getJSON(), null, 2))
+      } finally {
+        isApplyingRemote.current = false
+      }
     }
 
     const applyContentToEditor = (contentJson: any) => {
@@ -248,12 +250,15 @@ export default function TipTapEditor({
       if (!currentEditor) return
 
       isApplyingRemote.current = true
-      const { from, to } = currentEditor.state.selection
-      currentEditor.commands.setContent(contentJson, { emitUpdate: false })
       try {
-        currentEditor.commands.setTextSelection({ from, to })
-      } catch (e) {}
-      isApplyingRemote.current = false
+        const { from, to } = currentEditor.state.selection
+        currentEditor.commands.setContent(contentJson, { emitUpdate: false })
+        try {
+          currentEditor.commands.setTextSelection({ from, to })
+        } catch (e) {}
+      } finally {
+        isApplyingRemote.current = false
+      }
     }
 
     engine.on('apply-steps', applyStepsToEditor)
@@ -324,7 +329,7 @@ export default function TipTapEditor({
     }
 
     const setInitialStatus = () => {
-      if (isConnected) {
+      if (socket.connected) {
         onConnect()
       } else {
         updateConnectionStatus('Connecting')
@@ -366,8 +371,11 @@ export default function TipTapEditor({
       })
 
       isApplyingRemote.current = true
-      editor.commands.setContent(JSON.parse(snapshotContent), { emitUpdate: false })
-      isApplyingRemote.current = false
+      try {
+        editor.commands.setContent(JSON.parse(snapshotContent), { emitUpdate: false })
+      } finally {
+        isApplyingRemote.current = false
+      }
     }
 
     const onDocumentRename = (payload: any) => {
@@ -425,7 +433,7 @@ export default function TipTapEditor({
       socket.off('document:role_changed', onRoleChanged)
       socket.off('document:collaborators_updated', onCollaboratorsUpdated)
     }
-  }, [editor, documentId, actorId, token, socket, isConnected, updateConnectionStatus])
+  }, [editor, documentId, actorId, token, socket, updateConnectionStatus])
 
   const { collaborators, isTypingLocal } = usePresence(socket, documentId, editor)
 
