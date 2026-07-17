@@ -213,19 +213,33 @@ export default function TipTapEditor({
 
     const applyStepsToEditor = (steps: Step[]) => {
       console.log('[EDITOR] applyStepsToEditor', steps)
+
       const currentEditor = localEditorRef.current
       if (!currentEditor) return
 
       isApplyingRemote.current = true
+
       const tr = currentEditor.state.tr
-      steps.forEach((step) => {
+
+      steps.forEach((step, index) => {
         try {
+          console.log('[STEP BEFORE]', index, tr.doc.toJSON())
+
           tr.step(step)
+
+          console.log('[STEP APPLIED]', index)
+          console.log('[STEP AFTER]', index, tr.doc.toJSON())
         } catch (e) {
-          console.warn('Step apply failed, skipping', e)
+          console.error('[STEP FAILED]', index, e)
         }
       })
+
+      console.log('[DISPATCH]', tr.doc.toJSON())
+
       currentEditor.view.dispatch(tr)
+
+      console.log('[EDITOR AFTER DISPATCH]', currentEditor.getJSON())
+
       isApplyingRemote.current = false
     }
 
