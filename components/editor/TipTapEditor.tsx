@@ -65,6 +65,13 @@ export default function TipTapEditor({
   const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null)
   const isApplyingRemote = useRef(false)
 
+  // Resync bookkeeping: prevents concurrent resyncs and rate-limits how
+  // often we'll attempt a full rebuild if the document keeps hitting
+  // structural conflicts (avoids a resync storm hammering the server).
+  const isResyncingRef = useRef(false)
+  const lastResyncAttemptRef = useRef<number>(0)
+  const RESYNC_COOLDOWN_MS = 5000
+
   const [connectionStatus, setConnectionStatus] = useState<string>('Connecting...')
   const [isShareModalOpen, setIsShareModalOpen] = useState(false)
   const [currentUserRole, setCurrentUserRole] = useState<'OWNER' | 'EDITOR' | 'VIEWER'>(role)
@@ -225,6 +232,7 @@ export default function TipTapEditor({
 
       isApplyingRemote.current = true
 
+      let anyStepFailed = false
       try {
         const tr = currentEditor.state.tr
 
@@ -238,6 +246,11 @@ export default function TipTapEditor({
             console.log('[STEP AFTER]', JSON.stringify(tr.doc.toJSON(), null, 2))
           } catch (e) {
             console.error('[STEP FAILED]', index, e)
+            // FIX (Root Cause #2): previously this failure was only
+            // logged and the loop moved on, leaving the editor's real
+            // ProseMirror doc silently out of sync with what SyncEngine
+            // believes was applied. Flag it so we trigger recovery below.
+            anyStepFailed = true
           }
         })
 
@@ -248,6 +261,10 @@ export default function TipTapEditor({
         console.log('[EDITOR AFTER DISPATCH]', JSON.stringify(currentEditor.getJSON(), null, 2))
       } finally {
         isApplyingRemote.current = false
+      }
+
+      if (anyStepFailed) {
+        syncEngineRef.current?.requestResync('editor-level step application failed')
       }
     }
 
@@ -267,8 +284,99 @@ export default function TipTapEditor({
       }
     }
 
+    /**
+     * FIX (Root Cause #2 - recovery):
+     * Full resync flow. Triggered when SyncEngine detects it could not
+     * cleanly reconcile a remote or local step (structural conflict,
+     * out-of-bounds mapping, etc). Rather than leaving the client
+     * permanently diverged, we reset to the document's base content and
+     * replay the ENTIRE operation history from the server in Lamport
+     * order, using the existing `sync:reconnect` event (no new server
+     * endpoint required — this reuses the same mechanism already used
+     * for reconnect catch-up, just requesting from clock 0 instead of
+     * the last-known clock).
+     */
+    const performFullResync = async (reason: string) => {
+      const now = Date.now()
+      if (isResyncingRef.current) return
+      if (now - lastResyncAttemptRef.current < RESYNC_COOLDOWN_MS) return
+      lastResyncAttemptRef.current = now
+      isResyncingRef.current = true
+
+      SyncLogger.warn(`Starting full resync for doc ${documentId}: ${reason}`)
+
+      const currentEditor = localEditorRef.current
+      if (!currentEditor || !socket) {
+        isResyncingRef.current = false
+        return
+      }
+
+      isApplyingRemote.current = true
+      try {
+        let baseContent: any = ''
+        if (initialContent) {
+          try {
+            baseContent = JSON.parse(initialContent)
+          } catch {
+            // initialContent wasn't JSON (e.g. raw HTML/plain string) — use as-is.
+            baseContent = initialContent
+          }
+        }
+        currentEditor.commands.setContent(baseContent, { emitUpdate: false })
+        engine.prepareForFullResync()
+      } catch (e) {
+        SyncLogger.error('Failed to reset editor content during resync', { error: e })
+        isResyncingRef.current = false
+        isApplyingRemote.current = false
+        return
+      } finally {
+        isApplyingRemote.current = false
+      }
+
+      socket.emit(
+        'sync:reconnect',
+        {
+          documentId,
+          lastLamportClock: 0,
+          lastAckedOperationId: null,
+        },
+        async (ack: any, allOps: any[]) => {
+          if (!ack?.success || !Array.isArray(allOps)) {
+            SyncLogger.error('Full resync failed: could not fetch operation history')
+            isResyncingRef.current = false
+            return
+          }
+
+          try {
+            for (const op of allOps) {
+              const currentDoc = localEditorRef.current?.state.doc || currentEditor.state.doc
+              await engine.receiveRemoteOperation(op, currentDoc)
+            }
+            SyncLogger.info(
+              `Full resync complete for doc ${documentId}. Replayed ${allOps.length} operations.`,
+            )
+          } catch (e) {
+            SyncLogger.error('Full resync failed while replaying operations', { error: e })
+          } finally {
+            isResyncingRef.current = false
+          }
+        },
+      )
+    }
+
     engine.on('apply-steps', applyStepsToEditor)
+
+    // FIX: re-enabled. This was previously disabled with a TODO-style
+    // comment, which meant SyncEngine had no working path to push a full
+    // document snapshot into the editor. It's needed both for the
+    // `content`-key operation path and is exercised by the resync flow
+    // above (indirectly, via replayed tiptap_steps ops rebuilding state).
     engine.on('apply-content', applyContentToEditor)
+
+    // FIX (Root Cause #2 - recovery): wire up the new resync signal.
+    engine.on('resync-required', (payload: { reason: string }) => {
+      performFullResync(payload?.reason || 'unknown')
+    })
 
     engine.initialize()
 

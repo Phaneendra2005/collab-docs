@@ -15,6 +15,20 @@ import { SocketLogger } from '../logger/socket.logger'
 const broadcastQueues = new Map<string, any[]>()
 const batchTimers = new Map<string, NodeJS.Timeout>()
 
+// Deterministic tie-break matching OperationEngine.sortOperations on the
+// client, so persistence order is consistent with client-side replay
+// order for ops that land in the same batch
+function sortOperationsDeterministically(ops: any[]): any[] {
+  return ops.slice().sort((a, b) => {
+    if (a.lamportClock !== b.lamportClock) return a.lamportClock - b.lamportClock
+    if (a.actorId < b.actorId) return -1
+    if (a.actorId > b.actorId) return 1
+    if (a.operationId < b.operationId) return -1
+    if (a.operationId > b.operationId) return 1
+    return 0
+  })
+}
+
 export function registerOperationHandlers(
   io: Server<ClientToServerEvents, ServerToClientEvents, InterServerEvents, SocketData>,
   socket: Socket<ClientToServerEvents, ServerToClientEvents, InterServerEvents, SocketData>,
@@ -61,8 +75,12 @@ export function registerOperationHandlers(
         batchTimers.delete(op.documentId)
 
         if (opsToPersist.length > 0) {
+          // Sort deterministically before persisting so server-side
+          // persistence order matches client-side replay order
+          const sorted = sortOperationsDeterministically(opsToPersist)
+
           // Persist batch via internal API in the background without blocking
-          InternalServiceClient.persistOperations(op.documentId, opsToPersist)
+          InternalServiceClient.persistOperations(op.documentId, sorted)
             .then((persisted) => {
               if (!persisted) {
                 SocketLogger.error('Failed to persist operation batch via internal API', {
