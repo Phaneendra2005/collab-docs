@@ -26,6 +26,7 @@ export class SyncEngine extends EventEmitter {
 
   private unconfirmedLocalSteps: UnconfirmedStep[] = []
   private lastProcessedLamport: number = 0
+  private lastProcessedOperationId: string | null = null
   private sessionGeneratedOperationIds = new Set<string>()
 
   constructor(
@@ -68,13 +69,14 @@ export class SyncEngine extends EventEmitter {
     if (steps.length === 0) return
 
     const stepsJson = steps.map((s) => s.toJSON())
+    const parentIds = this.lastProcessedOperationId ? [this.lastProcessedOperationId] : []
     const op = await this.emitOperation(
       'UpdateMetadata',
       {
         key: 'tiptap_steps',
         value: JSON.stringify(stepsJson),
       },
-      [],
+      parentIds,
     )
 
     console.log('[DEBUG] applyLocalSteps:', {
@@ -131,6 +133,7 @@ export class SyncEngine extends EventEmitter {
     })
 
     this.sessionGeneratedOperationIds.add(opId)
+    this.lastProcessedOperationId = opId
 
     const hash = await hashOperation(baseObj)
 
@@ -178,6 +181,7 @@ export class SyncEngine extends EventEmitter {
       }
 
       this.lastProcessedLamport = readyOp.lamportClock
+      this.lastProcessedOperationId = readyOp.operationId
       this.clock.merge(readyOp.lamportClock)
 
       if (
