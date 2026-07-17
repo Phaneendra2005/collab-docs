@@ -321,8 +321,13 @@ export default function TipTapEditor({
     const onReconnectAttempt = () => updateConnectionStatus('Reconnecting')
 
     const onOperationReceive = async (op: any) => {
+      console.log('[RECEIVED OP]', op)
+
       if (op.operationType === 'UpdateMetadata') {
+        console.log('[APPLYING UPDATE METADATA]')
         await engine.receiveRemoteOperation(op, localEditorRef.current!.state.doc)
+      } else {
+        console.log('[IGNORED OPERATION]', op.operationType)
       }
     }
 
